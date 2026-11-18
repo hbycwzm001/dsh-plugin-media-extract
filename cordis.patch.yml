@@ -1,0 +1,8 @@
+- insert:
+    - id: media-extract-tools
+      name: dsh-plugin-media-extract
+      config:
+        binPath: ""
+        homeDir: ""
+        timeoutMs: 900000
+        maxChars: 20000

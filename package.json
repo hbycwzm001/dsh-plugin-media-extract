@@ -1,0 +1,57 @@
+{
+  "name": "dsh-plugin-media-extract",
+  "version": "0.1.0",
+  "description": "把任意平台的视频/图文链接解析成原片 + 文案 + 转写文本（抖音/小红书/TikTok/YouTube/Facebook/X/Instagram）",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "icon": "icon.svg",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "locale"
+  ],
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.2-rc.1+": "compatible",
+        "0.2.2-rc.3+": "compatible"
+      }
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
+  },
+  "keywords": ["dsh-plugin", "video", "download", "transcript", "tiktok", "youtube"],
+  "author": "hbycwzm001",
+  "license": "MIT",
+  "homepage": "https://github.com/hbycwzm001/dsh-plugin-media-extract",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hbycwzm001/dsh-plugin-media-extract.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hbycwzm001/dsh-plugin-media-extract/issues"
+  },
+  "private": true
+}

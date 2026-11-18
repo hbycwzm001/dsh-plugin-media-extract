@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Media Extractor (dsh-plugin-media-extract)",
+    "description": "Turn any video/photo-post link into the original file + caption + transcript. Works with Douyin, Xiaohongshu, TikTok, YouTube, Facebook, X and Instagram. Everything runs locally.",
+    "detail": "README.md"
+  }
+}

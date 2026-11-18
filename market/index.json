@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Media Extractor",
+    "zh": "视频解析下载"
+  },
+  "description": {
+    "en": "Turn any video or photo-post link into the original file plus caption and transcript.",
+    "zh": "把任意视频/图文链接变成原片 + 文案 + 转写文本，七平台通用。"
+  },
+  "metadata": {
+    "categories": {
+      "media": {
+        "title": {
+          "en": "Media",
+          "zh": "媒体处理"
+        }
+      }
+    },
+    "labels": {},
+    "sortKeys": {}
+  },
+  "plugins": [
+    {
+      "name": "dsh-plugin-media-extract",
+      "title": {
+        "en": "Media Extractor",
+        "zh": "视频解析下载"
+      },
+      "description": {
+        "en": "Paste a link from Douyin, Xiaohongshu, TikTok, YouTube, Facebook, X or Instagram and get the original file, the caption and a local transcript.",
+        "zh": "支持抖音、小红书、TikTok、YouTube、Facebook、X、Instagram：粘链接 → 原片 + 文案 + 转写，全部本地运行。"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM0ZjhjZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjN2IzZmYyIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB4PSI0IiB5PSIxMCIgd2lkdGg9IjU2IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0idXJsKCNnKSIvPgogIDxwYXRoIGQ9Ik0yNiAyMmwxNiA4LTE2IDh6IiBmaWxsPSIjZmZmIi8+CiAgPHJlY3QgeD0iMTQiIHk9IjU0IiB3aWR0aD0iMzYiIGhlaWdodD0iNCIgcng9IjIiIGZpbGw9InVybCgjZykiIG9wYWNpdHk9Ii41NSIvPgo8L3N2Zz4K",
+      "author": "hbycwzm001",
+      "homepage": "https://github.com/hbycwzm001/dsh-plugin-media-extract",
+      "repository": {
+        "url": "https://github.com/hbycwzm001/dsh-plugin-media-extract"
+      },
+      "metadata": {
+        "category": "media",
+        "keywords": [
+          "video",
+          "download",
+          "transcript",
+          "tiktok",
+          "youtube",
+          "douyin",
+          "instagram"
+        ],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794971840,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.1"
+          }
+        }
+      ]
+    }
+  ]
+}

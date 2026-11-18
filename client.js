@@ -213,13 +213,61 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // 面板在切换标签页时会被卸载，把状态放在模块级，切回来还能看到上一次的结果。
-    const STORE = { url: '', result: null, urls: {}, playNote: '', error: '' };
+    // 面板在切换标签页/会话时会被卸载，所以「正在解析」和结果都放在模块级：
+    // 切走再切回来能接着显示进度，解析完成后结果也不会丢。
+    const STORE = {
+      url: '', result: null, urls: {}, playNote: '', error: '',
+      busy: false, startedAt: 0,
+    };
+    const SUBS = new Set();
+    function notify() {
+      for (const fn of Array.from(SUBS)) {
+        try { fn(); } catch {}
+      }
+    }
+    let JOB = null;
+
+    function runJob(target, tr, base) {
+      if (STORE.busy) return JOB;
+      STORE.busy = true;
+      STORE.startedAt = Date.now();
+      STORE.error = '';
+      STORE.playNote = '';
+      STORE.result = null;
+      notify();
+      JOB = (async () => {
+        try {
+          const res = await fetch(`${base}api/media-extract/run`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ url: target, transcribe: tr }),
+          });
+          const text = await res.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error(`接口返回异常（HTTP ${res.status}）：${text.slice(0, 200)}`);
+          }
+          if (!data.ok) { STORE.error = data.error || '解析失败'; STORE.result = null; }
+          else { STORE.result = data; STORE.error = ''; }
+        } catch (e) {
+          STORE.error = String((e && e.message) || e);
+        } finally {
+          STORE.busy = false;
+          STORE.startedAt = 0;
+          JOB = null;
+          notify();
+        }
+      })();
+      return JOB;
+    }
 
     function Panel() {
       const t = useT();
       const [url, setUrl] = useState(STORE.url);
-      const [busy, setBusy] = useState(false);
+      const [busy, setBusy] = useState(STORE.busy);
       const [transcribe, setTranscribe] = useState(true);
       const [result, setResult] = useState(STORE.result);
       const [error, setError] = useState(STORE.error);
@@ -227,14 +275,37 @@ window.__ModuleLoader__.load({
       const [urls, setUrls] = useState(STORE.urls);
       const [savedPath, setSavedPath] = useState('');
       const [preview, setPreview] = useState(null);
-      const [elapsed, setElapsed] = useState(0);
-      const timerRef = useRef(null);
+      const [elapsed, setElapsed] = useState(
+        STORE.busy && STORE.startedAt ? Math.round((Date.now() - STORE.startedAt) / 1000) : 0,
+      );
       const urlsRef = useRef({ ...STORE.urls });
 
+      // 挂载时从模块级 STORE 同步；解析在后台跑，切回来仍有进度和结果。
       useEffect(() => {
-        STORE.url = url; STORE.result = result; STORE.urls = urls;
-        STORE.playNote = playNote; STORE.error = error;
-      }, [url, result, urls, playNote, error]);
+        const sync = () => {
+          setBusy(STORE.busy);
+          setResult(STORE.result);
+          setError(STORE.error);
+          setPlayNote(STORE.playNote);
+          setElapsed(STORE.busy && STORE.startedAt
+            ? Math.round((Date.now() - STORE.startedAt) / 1000) : 0);
+        };
+        SUBS.add(sync);
+        sync();
+        return () => { SUBS.delete(sync); };
+      }, []);
+
+      useEffect(() => {
+        STORE.url = url;
+      }, [url]);
+
+      useEffect(() => {
+        if (!busy) return;
+        const id = setInterval(() => {
+          if (STORE.startedAt) setElapsed(Math.round((Date.now() - STORE.startedAt) / 1000));
+        }, 500);
+        return () => clearInterval(id);
+      }, [busy]);
 
       const base = (function () {
         try { return new URL('.', document.baseURI).href; } catch { return '/'; }
@@ -263,6 +334,7 @@ window.__ModuleLoader__.load({
               const u = await fetchBlobUrl(base, p);
               if (cancelled) { try { URL.revokeObjectURL(u); } catch {} return; }
               urlsRef.current = { ...urlsRef.current, [p]: u };
+              STORE.urls = { ...urlsRef.current };
               setUrls({ ...urlsRef.current });
             } catch (e) {
               if (!cancelled && p === result.media) setPlayNote(`${t('playFail')}：${String((e && e.message) || e)}`);
@@ -272,36 +344,13 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, [result, base, t]);
 
-      const submit = useCallback(async () => {
+      const submit = useCallback(() => {
         const target = url.trim();
-        if (!target || busy) return;
+        if (!target || STORE.busy) return;
         revokeAll();
-        setBusy(true); setError(''); setPlayNote(''); setResult(null); setElapsed(0);
-        const t0 = Date.now();
-        timerRef.current = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 500);
-        try {
-          const res = await fetch(`${base}api/media-extract/run`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ url: target, transcribe }),
-          });
-          const text = await res.text();
-          let data;
-          try {
-            data = JSON.parse(text);
-          } catch {
-            throw new Error(`接口返回异常（HTTP ${res.status}）：${text.slice(0, 200)}`);
-          }
-          if (!data.ok) setError(data.error || t('failed'));
-          else setResult(data);
-        } catch (e) {
-          setError(String((e && e.message) || e));
-        } finally {
-          clearInterval(timerRef.current);
-          setBusy(false);
-        }
-      }, [url, busy, transcribe, base, t, revokeAll]);
+        STORE.url = target;
+        void runJob(target, transcribe, base);
+      }, [url, transcribe, base, revokeAll]);
 
       const reveal = useCallback(async (path) => {
         try {
@@ -351,9 +400,19 @@ window.__ModuleLoader__.load({
       }, [base]);
 
       const clear = useCallback(() => {
+        if (STORE.busy) return;   // 解析中不清空，避免丢进度
         revokeAll();
         setResult(null); setError(''); setPlayNote(''); setUrl(''); setSavedPath('');
         STORE.url = ''; STORE.result = null; STORE.urls = {}; STORE.playNote = ''; STORE.error = '';
+        notify();
+      }, [revokeAll]);
+
+      const again = useCallback(() => {
+        if (STORE.busy) return;
+        revokeAll();
+        setResult(null); setError(''); setPlayNote('');
+        STORE.result = null; STORE.error = ''; STORE.playNote = '';
+        notify();
       }, [revokeAll]);
 
       const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } };
@@ -376,7 +435,7 @@ window.__ModuleLoader__.load({
           h('label', { style: { ...S.note, display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } },
             h('input', { type: 'checkbox', checked: transcribe, onChange: (e) => setTranscribe(e.target.checked) }),
             t('transcribe')),
-          result ? h('button', { style: S.ghost, onClick: () => { revokeAll(); setResult(null); setError(''); setPlayNote(''); } }, t('again')) : null,
+          result ? h('button', { style: S.ghost, onClick: again }, t('again')) : null,
         ),
 
         error ? h('div', { style: S.err }, error) : null,

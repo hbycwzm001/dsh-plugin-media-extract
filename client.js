@@ -101,6 +101,12 @@ window.__ModuleLoader__.load({
       note: { fontSize: '12px', color: MUTED, lineHeight: '1.6' },
       err: { color: '#b42318', fontSize: '13px', whiteSpace: 'pre-wrap', background: '#fef3f2', padding: '10px 12px', borderRadius: '10px' },
       fileRow: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+      overlay: {
+        position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.86)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        padding: '24px', boxSizing: 'border-box',
+      },
+      overlayImg: { maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain', borderRadius: '8px' },
       fileBtn: {
         fontSize: '12px', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer',
         border: `1px solid ${LINE}`, background: SOFT, color: INK, font: 'inherit',
@@ -109,7 +115,15 @@ window.__ModuleLoader__.load({
     };
 
     // 网关不带 query string，所以文件用 POST 取二进制，再转成 blob URL 给 <video>/<img>。
-    async function fetchBlobUrl(base, path) {
+    function baseName(p) {
+      return String(p || '').split(/[\\/]/).pop() || '';
+    }
+
+    function dirName(p) {
+      const s = String(p || '');
+      const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+      return i > 0 ? s.slice(0, i) : '';
+    }    async function fetchBlobUrl(base, path) {
       const res = await fetch(`${base}api/media-extract/file`, {
         method: 'POST',
         credentials: 'same-origin',
@@ -152,6 +166,7 @@ window.__ModuleLoader__.load({
       const [playNote, setPlayNote] = useState(STORE.playNote);
       const [urls, setUrls] = useState(STORE.urls);
       const [savedPath, setSavedPath] = useState('');
+      const [preview, setPreview] = useState(null);
       const [elapsed, setElapsed] = useState(0);
       const timerRef = useRef(null);
       const urlsRef = useRef({ ...STORE.urls });
@@ -285,6 +300,7 @@ window.__ModuleLoader__.load({
 
       const images = (result && result.images) || [];
       const files = result ? [result.media, ...images, result.txt].filter(Boolean) : [];
+      const primary = files[0] || '';
 
       return h('div', { style: S.wrap },
         h('div', { style: S.row },
@@ -320,10 +336,11 @@ window.__ModuleLoader__.load({
                 urls[result.media]
                   ? h('div', { style: { display: 'flex', justifyContent: 'center', background: 'transparent' } },
                     h('video', {
-                      style: S.video,
+                      style: { ...S.video, cursor: 'zoom-in' },
                       src: urls[result.media],
                       controls: true,
                       playsInline: true,
+                      onClick: () => setPreview({ type: 'video', src: urls[result.media] }),
                     }))
                   : h('div', { style: { ...S.note, padding: '24px 0' } }, t('loading')),
                 playNote ? h('div', { style: { ...S.note, marginTop: '6px', color: '#b42318' } }, playNote) : null,
@@ -335,7 +352,10 @@ window.__ModuleLoader__.load({
                 h('div', { style: S.label }, `${t('images')} · ${images.length}`),
                 h('div', { style: S.thumbs },
                   images.map((p) => urls[p]
-                    ? h('img', { key: p, style: S.thumb, src: urls[p] })
+                    ? h('img', {
+                      key: p, style: { ...S.thumb, cursor: 'zoom-in' }, src: urls[p],
+                      onClick: () => setPreview({ type: 'image', src: urls[p] }),
+                    })
                     : h('div', { key: p, style: { ...S.thumb, width: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: SOFT, fontSize: '11px', color: MUTED } }, '…')),
                 ),
               )
@@ -360,25 +380,32 @@ window.__ModuleLoader__.load({
               )
               : null,
 
-            files.length
+            primary
               ? h('div', null,
                 h('div', { style: S.label }, t('files')),
                 h('div', { style: S.fileRow },
-                  files.map((p) => h('button', {
-                    key: `open-${p}`, style: S.fileBtn, title: p,
-                    onClick: () => void reveal(p),
-                  }, `${t('open')} · ${p.split(/[\\/]/).pop()}`)),
-                  files.map((p) => h('button', {
-                    key: `dl-${p}`, style: { ...S.fileBtn, borderColor: '#bfdbfe', color: '#1d4ed8', background: '#eff6ff' }, title: p,
-                    onClick: () => void save(p),
-                  }, savedPath === p ? `✓ ${t('saved')}` : `${t('download')} · ${p.split(/[\\/]/).pop()}`)),
+                  h('button', { style: S.fileBtn, title: primary, onClick: () => void reveal(primary) },
+                    `${t('open')} · ${baseName(primary)}`),
+                  h('button', {
+                    style: { ...S.fileBtn, borderColor: '#bfdbfe', color: '#1d4ed8', background: '#eff6ff' },
+                    title: primary,
+                    onClick: () => void save(primary),
+                  }, savedPath === primary ? `✓ ${t('saved')}` : `${t('download')} · ${baseName(primary)}`),
                 ),
                 h('div', { style: { ...S.note, marginTop: '6px', wordBreak: 'break-all' } },
-                  `${t('folder')}：${String(result.folder || (result.media || files[0] || '')).replace(/[\\/][^\\/]*$/, '') || '—'}`),
+                  `${t('folder')}：${dirName(primary) || '—'}`),
               )
               : null,
           )
           : h('div', { style: S.note }, t('hint')),
+
+        preview
+          ? h('div', { style: S.overlay, onClick: () => setPreview(null) },
+            preview.type === 'image'
+              ? h('img', { style: S.overlayImg, src: preview.src })
+              : h('video', { style: S.overlayImg, src: preview.src, controls: true, autoPlay: true, onClick: (e) => e.stopPropagation() }),
+          )
+          : null,
       );
     }
 

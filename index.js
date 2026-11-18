@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
@@ -87,6 +87,79 @@ function lastJson(text) {
   }
 }
 
+/** 跑一次解析，返回给工具和网页面板共用的结果对象。 */
+async function extractOne(config, { url, transcribe, preferBrowser }) {
+  const exe = binOf(config);
+  if (!existsSync(exe)) {
+    return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
+  }
+  const argv = [url];
+  if (transcribe === false) argv.push('--no-transcribe');
+  if (preferBrowser) argv.push('--browser');
+  const t0 = Date.now();
+  const res = await run(exe, argv, config.timeoutMs);
+  const data = lastJson(res.out) || lastJson(res.err);
+  if (!data) return { ok: false, error: clip(res.err || res.out || '没有输出', 1200) };
+  const ok = data.status === 'ok';
+  return {
+    ok,
+    platform: data.platform,
+    type: data.type,
+    title: data.title,
+    caption: clip(data.caption, config.maxChars),
+    text: clip(data.text, config.maxChars),
+    media: data.local_media || undefined,
+    images: data.images && data.images.length ? data.images : undefined,
+    txt: data.txt || undefined,
+    bytes: data.bytes || undefined,
+    seconds: Math.round((Date.now() - t0) / 100) / 10,
+    error: ok ? undefined : data.message || '解析失败',
+  };
+}
+
+const MIME = {
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.txt': 'text/plain; charset=utf-8',
+};
+
+/** 只允许读引擎目录里的文件，防目录穿越。 */
+function serveFile(config, request) {
+  const params = new URL(request.url).searchParams;
+  const raw = params.get('p');
+  if (!raw) return new Response('missing p', { status: 400 });
+  const target = resolve(raw);
+  const root = resolve(homeOf(config));
+  if (target !== root && !target.startsWith(root + sep)) return new Response('forbidden', { status: 403 });
+  if (!existsSync(target)) return new Response('not found', { status: 404 });
+  const buf = readFileSync(target);
+  const type = MIME[extname(target).toLowerCase()] || 'application/octet-stream';
+  const range = request.headers.get('range');
+  if (range) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (m) {
+      const start = m[1] === '' ? Math.max(0, buf.length - Number(m[2])) : Number(m[1]);
+      const end = m[1] !== '' && m[2] !== '' ? Math.min(Number(m[2]), buf.length - 1) : buf.length - 1;
+      if (start <= end && start < buf.length) {
+        return new Response(buf.subarray(start, end + 1), {
+          status: 206,
+          headers: {
+            'content-type': type,
+            'content-length': String(end - start + 1),
+            'content-range': `bytes ${start}-${end}/${buf.length}`,
+            'accept-ranges': 'bytes',
+            'cache-control': 'no-store',
+          },
+        });
+      }
+    }
+  }
+  return new Response(buf, {
+    status: 200,
+    headers: { 'content-type': type, 'content-length': String(buf.length), 'accept-ranges': 'bytes', 'cache-control': 'no-store' },
+  });
+}
+
 function makeExtractTool(config) {
   return defineTool({
     name: 'media_extract',
@@ -129,32 +202,7 @@ function makeExtractTool(config) {
       },
     },
     async execute(args) {
-      const exe = binOf(config);
-      if (!existsSync(exe)) {
-        return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
-      }
-      const argv = [args.url];
-      if (args.transcribe === false) argv.push('--no-transcribe');
-      if (args.preferBrowser) argv.push('--browser');
-      const t0 = Date.now();
-      const res = await run(exe, argv, config.timeoutMs);
-      const data = lastJson(res.out) || lastJson(res.err);
-      if (!data) return { ok: false, error: clip(res.err || res.out || '没有输出', 1200) };
-      const ok = data.status === 'ok';
-      return {
-        ok,
-        platform: data.platform,
-        type: data.type,
-        title: data.title,
-        caption: clip(data.caption, config.maxChars),
-        text: clip(data.text, config.maxChars),
-        media: data.local_media || undefined,
-        images: data.images && data.images.length ? data.images : undefined,
-        txt: data.txt || undefined,
-        bytes: data.bytes || undefined,
-        seconds: Math.round((Date.now() - t0) / 100) / 10,
-        error: ok ? undefined : data.message || '解析失败',
-      };
+      return extractOne(config, args);
     },
   });
 }
@@ -234,4 +282,46 @@ function makeSetupTool(config) {
 export function apply(ctx, config) {
   ctx.tools.register(makeExtractTool(config));
   ctx.tools.register(makeSetupTool(config));
+
+  // 浏览器端的「解析」面板靠这两条路由工作（同源，无需额外鉴权）。
+  ctx.inject(['connection'], (scope) => {
+    scope.effect(() => scope.connection.fetch.register({
+      path: '/api/media-extract/run',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let body = {};
+        try { body = await request.json(); } catch { body = {}; }
+        const url = String(body.url || '').trim();
+        if (!url) return Response.json({ ok: false, error: '缺少 url' }, { status: 400 });
+        const result = await extractOne(config, {
+          url,
+          transcribe: body.transcribe !== false,
+          preferBrowser: body.preferBrowser === true,
+        });
+        return Response.json(result, { headers: { 'cache-control': 'no-store' } });
+      },
+    }), 'media-extract: /api/media-extract/run');
+
+    scope.effect(() => scope.connection.fetch.register({
+      path: '/api/media-extract/file',
+      methods: ['GET'],
+      requestBody: 'none',
+      fetch: (request) => {
+        try { return serveFile(config, request); } catch (error) { return new Response(String(error), { status: 500 }); }
+      },
+    }), 'media-extract: /api/media-extract/file');
+
+    scope.effect(() => scope.connection.fetch.register({
+      path: '/api/media-extract/status',
+      methods: ['GET'],
+      requestBody: 'none',
+      fetch: () => Response.json({
+        ready: existsSync(binOf(config)),
+        bin: binOf(config),
+        home: homeOf(config),
+        config: readConfig(config),
+      }, { headers: { 'cache-control': 'no-store' } }),
+    }), 'media-extract: /api/media-extract/status');
+  });
 }

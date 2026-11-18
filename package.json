@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-media-extract",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "把任意平台的视频/图文链接解析成原片 + 文案 + 转写文本（抖音/小红书/TikTok/YouTube/Facebook/X/Instagram）",
   "type": "module",
   "main": "./index.js",

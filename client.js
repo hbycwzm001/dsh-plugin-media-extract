@@ -6,6 +6,26 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useCallback, useRef } = React;
 
     const NS = 'mediaExtract';
+    const copyToClipboard = (text) => new Promise((res, rej) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(res, rej);
+          return;
+        }
+      } catch (e) { /* 落到下面 */ }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? res() : rej(new Error('copy failed'));
+      } catch (e) { rej(e); }
+    });
+
     const ZH = {
       tab: '解析',
       placeholder: '粘贴链接：抖音 / 小红书 / TikTok / YouTube / Facebook / X / Instagram',
@@ -19,6 +39,8 @@ window.__ModuleLoader__.load({
       title: '标题',
       text: '转写',
       noSpeech: '（未检测到人声，或这条视频没有语音）',
+      copy: '复制',
+      copied: '已复制',
       files: '本地文件',
       open: '打开位置',
       clear: '清空',
@@ -43,6 +65,8 @@ window.__ModuleLoader__.load({
       title: 'Title',
       text: 'Transcript',
       noSpeech: '(no speech detected in this video)',
+      copy: 'Copy',
+      copied: 'Copied',
       files: 'Local files',
       open: 'Show in folder',
       clear: 'Clear',
@@ -87,6 +111,10 @@ window.__ModuleLoader__.load({
         background: '#ffffff', boxShadow: '0 1px 2px rgba(16,24,40,.04)',
       },
       label: { fontSize: '12px', color: MUTED, letterSpacing: '0.04em' },
+      labelRow: {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: '8px', marginBottom: '4px',
+      },
       pre: {
         whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
         fontSize: '13px', lineHeight: '1.7', maxHeight: '320px', overflowY: 'auto',
@@ -125,7 +153,37 @@ window.__ModuleLoader__.load({
       const s = String(p || '');
       const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
       return i > 0 ? s.slice(0, i) : '';
-    }    async function fetchBlobUrl(base, path) {
+    }
+
+    /** 标题栏右侧的复制图标；点一下把文本写进剪贴板，1.2 秒后恢复。 */
+    function CopyBtn({ text, label, doneLabel }) {
+      const [state, setState] = useState('');
+      const onClick = () => {
+        const value = String(text || '');
+        if (!value) return;
+        copyToClipboard(value).then(() => {
+          setState('ok');
+          setTimeout(() => setState(''), 1200);
+        }, () => setState('fail'));
+      };
+      const done = state === 'ok';
+      return h('button', {
+        type: 'button',
+        title: label || '复制',
+        'aria-label': label || '复制',
+        onClick,
+        style: {
+          display: 'inline-flex', alignItems: 'center', gap: '4px',
+          border: `1px solid ${done ? '#86efac' : '#e5e7eb'}`,
+          background: done ? '#f0fdf4' : '#fff',
+          color: done ? '#15803d' : '#6b7280',
+          borderRadius: '6px', padding: '2px 6px', fontSize: '11px',
+          lineHeight: 1.4, cursor: 'pointer', userSelect: 'none',
+        },
+      }, done ? `✓ ${doneLabel || '已复制'}` : `⧉ ${label || '复制'}`);
+    }
+
+    async function fetchBlobUrl(base, path) {
       const res = await fetch(`${base}api/media-extract/file`, {
         method: 'POST',
         credentials: 'same-origin',
@@ -365,21 +423,32 @@ window.__ModuleLoader__.load({
 
             result.caption
               ? h('div', null,
-                h('div', { style: S.label }, t('caption')),
+                h('div', { style: S.labelRow },
+                  h('span', { style: S.label }, t('caption')),
+                  h(CopyBtn, { text: result.caption, label: t('copy'), doneLabel: t('copied') }),
+                ),
                 h('pre', { style: S.pre }, result.caption),
               )
               : null,
 
             h('div', null,
-              h('div', { style: S.label }, t('title')),
+              h('div', { style: S.labelRow },
+                h('span', { style: S.label }, t('title')),
+                h(CopyBtn, { text: result.title, label: t('copy'), doneLabel: t('copied') }),
+              ),
               h('div', { style: { fontSize: '14px', fontWeight: '600', wordBreak: 'break-word', color: INK } }, result.title || '(无)'),
             ),
 
             result.text !== undefined
               ? h('div', null,
-                h('div', { style: S.label },
-                  `${t('text')}${result.text && result.text.replace(/\s/g, '').length > 1
-                    ? ` · ${result.text.replace(/\s/g, '').length} 字` : ''}`),
+                h('div', { style: S.labelRow },
+                  h('span', { style: S.label },
+                    `${t('text')}${result.text && result.text.replace(/\s/g, '').length > 1
+                      ? ` · ${result.text.replace(/\s/g, '').length} 字` : ''}`),
+                  result.text && result.text.replace(/\s/g, '').length > 1
+                    ? h(CopyBtn, { text: result.text, label: t('copy'), doneLabel: t('copied') })
+                    : null,
+                ),
                 h('pre', { style: S.pre },
                   result.text && result.text.replace(/\s/g, '').length > 1 ? result.text : t('noSpeech')),
               )

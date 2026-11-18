@@ -102,6 +102,12 @@
 - 还原 `xhslink.cn` 短链到 `discovery/item/<id>?xsec_token=...`
 - 同一条链接并发解析改为串行排队，避免 Windows 文件占用
 
+### 0.2.5
+
+- 解析产物默认改存到非系统盘的 `工作台` 目录（如 `D:\工作台`，自动创建，可用 `outputDir` 覆盖）
+- 转写文本常显并标注字数，无人声时显示提示
+- 文件网关与「打开位置」允许访问输出目录
+
 ### 0.2.1
 
 - 修 `output.schema` 缺 `additionalProperties` 导致整个插件加载失败

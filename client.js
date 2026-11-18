@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
       caption: '文案',
       title: '标题',
       text: '转写',
+      noSpeech: '（未检测到人声，或这条视频没有语音）',
       files: '本地文件',
       open: '打开位置',
       clear: '清空',
@@ -41,6 +42,7 @@ window.__ModuleLoader__.load({
       caption: 'Caption',
       title: 'Title',
       text: 'Transcript',
+      noSpeech: '(no speech detected in this video)',
       files: 'Local files',
       open: 'Show in folder',
       clear: 'Clear',
@@ -373,10 +375,13 @@ window.__ModuleLoader__.load({
               h('div', { style: { fontSize: '14px', fontWeight: '600', wordBreak: 'break-word', color: INK } }, result.title || '(无)'),
             ),
 
-            result.text && result.text.trim() && result.text.trim() !== '.'
-              ? h('details', null,
-                h('summary', { style: { ...S.label, cursor: 'pointer' } }, t('text')),
-                h('pre', { style: { ...S.pre, marginTop: '8px' } }, result.text),
+            result.text !== undefined
+              ? h('div', null,
+                h('div', { style: S.label },
+                  `${t('text')}${result.text && result.text.replace(/\s/g, '').length > 1
+                    ? ` · ${result.text.replace(/\s/g, '').length} 字` : ''}`),
+                h('pre', { style: S.pre },
+                  result.text && result.text.replace(/\s/g, '').length > 1 ? result.text : t('noSpeech')),
               )
               : null,
 

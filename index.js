@@ -13,6 +13,7 @@ export const Config = z.object({
   homeDir: z.string().default('').description('工具目录；留空则用 ~/.dsh/media-extract'),
   timeoutMs: z.number().default(900000).description('单次解析超时（毫秒）'),
   maxChars: z.number().default(20000).description('回给模型的文本上限'),
+  outputDir: z.string().default('').description('解析产物保存目录；留空则用非系统盘的 工作台 目录（如 D:\\工作台）'),
 });
 
 const PKG_URL = 'https://github.com/hbycwzm001/media-extract-tool/releases/latest/download/extract-tool-win64.zip';
@@ -207,13 +208,28 @@ const MIME = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.txt': 'text/plain; charset=utf-8',
 };
 
-/** 只允许读引擎目录里的文件，防目录穿越。 */
+/** 允许读取的根目录：引擎目录 + 输出目录（含各盘「工作台」）。 */
+function allowedRoots(config) {
+  const roots = [resolve(homeOf(config))];
+  const configured = String(config.outputDir || '').trim();
+  if (configured) roots.push(resolve(configured));
+  if (process.platform === 'win32') {
+    for (const letter of 'DEFGHIJ') {
+      const dir = `${letter}:\\工作台`;
+      if (existsSync(dir)) roots.push(resolve(dir));
+    }
+  }
+  roots.push(resolve(homeOf(config), '..', 'output'));
+  return roots;
+}
+
+/** 只允许读引擎目录与输出目录里的文件，防目录穿越。 */
 function serveFile(config, rawPath) {
   const raw = String(rawPath || '');
   if (!raw) return new Response('missing path', { status: 400 });
   const target = resolve(raw);
-  const root = resolve(homeOf(config));
-  if (target !== root && !target.startsWith(root + sep)) return new Response('forbidden', { status: 403 });
+  const ok = allowedRoots(config).some((root) => target === root || target.startsWith(root + sep));
+  if (!ok) return new Response('forbidden', { status: 403 });
   if (!existsSync(target)) return new Response('not found', { status: 404 });
   const buf = readFileSync(target);
   const type = MIME[extname(target).toLowerCase()] || 'application/octet-stream';
@@ -392,10 +408,10 @@ export function apply(ctx, config) {
         try { body = await request.json(); } catch { body = {}; }
         const target = String(body.path || '').trim();
         if (!target) return Response.json({ ok: false, error: '缺少 path' }, { status: 400 });
-        const home = resolve(homeOf(config));
         const abs = resolve(target);
-        if (abs !== home && !abs.startsWith(home + sep)) {
-          return Response.json({ ok: false, error: `只允许打开工具目录下的文件：${home}` }, { status: 403 });
+        const allowed = allowedRoots(config).some((root) => abs === root || abs.startsWith(root + sep));
+        if (!allowed) {
+          return Response.json({ ok: false, error: `只允许打开解析产物目录下的文件：${allowedRoots(config).join(' / ')}` }, { status: 403 });
         }
         if (!existsSync(abs)) return Response.json({ ok: false, error: `文件不存在：${abs}` }, { status: 404 });
         const dir = dirname(abs);

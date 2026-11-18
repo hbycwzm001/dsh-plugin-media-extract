@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-media-extract",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "把任意平台的视频/图文链接解析成原片 + 文案 + 转写文本（抖音/小红书/TikTok/YouTube/Facebook/X/Instagram）",
   "type": "module",
   "main": "./index.js",
@@ -44,11 +44,24 @@
     "@deepseek-ai/schemastery": "^3.18.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-tools": { "optional": true },
-    "@deepseek-ai/schemastery": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
   },
-  "keywords": ["dsh-plugin", "video", "download", "transcript", "tiktok", "youtube"],
+  "keywords": [
+    "dsh-plugin",
+    "video",
+    "download",
+    "transcript",
+    "tiktok",
+    "youtube"
+  ],
   "author": "hbycwzm001",
   "license": "MIT",
   "homepage": "https://github.com/hbycwzm001/dsh-plugin-media-extract",

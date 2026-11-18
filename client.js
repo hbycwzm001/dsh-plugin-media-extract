@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const h = React.createElement;
-    const { useState, useRef, useCallback } = React;
+    const { useState, useEffect, useCallback, useRef } = React;
 
     const NS = 'mediaExtract';
     const ZH = {
@@ -19,10 +19,15 @@ window.__ModuleLoader__.load({
       title: '标题',
       text: '转写',
       files: '本地文件',
-      empty: '还没有结果',
-      hint: '支持的平台：抖音、小红书、TikTok、YouTube、Facebook、X(Twitter)、Instagram。',
+      open: '打开位置',
+      clear: '清空',
+      download: '下载到…',
+      saved: '已保存',
+      folder: '所在文件夹',
+      hint: '支持的平台：抖音、小红书、TikTok、YouTube、Facebook、X(Twitter)、Instagram。粘整段分享文案也可以。',
       failed: '解析失败',
-      notReady: '引擎未安装，先在对话里让 Agent 运行 media_setup(action="download")。',
+      playFail: '视频加载失败',
+      loading: '正在读取文件…',
     };
     const EN = {
       tab: 'Extract',
@@ -37,79 +42,166 @@ window.__ModuleLoader__.load({
       title: 'Title',
       text: 'Transcript',
       files: 'Local files',
-      empty: 'No result yet',
-      hint: 'Supports Douyin, Xiaohongshu, TikTok, YouTube, Facebook, X (Twitter) and Instagram.',
+      open: 'Show in folder',
+      clear: 'Clear',
+      download: 'Save as…',
+      saved: 'Saved',
+      folder: 'Folder',
+      hint: 'Supports Douyin, Xiaohongshu, TikTok, YouTube, Facebook, X (Twitter) and Instagram. Pasting the whole share text works too.',
       failed: 'Extraction failed',
-      notReady: 'Engine is not installed. Ask the agent to run media_setup(action="download").',
+      playFail: 'Video failed to load',
+      loading: 'Reading file…',
     };
+
+    const INK = '#1a1a1a';
+    const MUTED = '#6b7280';
+    const LINE = '#e5e7eb';
+    const SOFT = '#f6f7f9';
 
     const S = {
       wrap: {
         display: 'flex', flexDirection: 'column', gap: '14px', padding: '20px',
         height: '100%', overflowY: 'auto', boxSizing: 'border-box',
-        font: 'inherit', color: 'var(--dsw-alias-text-primary, #e6e6e6)',
+        font: 'inherit', color: INK, background: '#ffffff',
       },
       row: { display: 'flex', gap: '10px', alignItems: 'center' },
       input: {
         flex: '1 1 auto', minWidth: '0', padding: '10px 12px', borderRadius: '10px',
-        border: '1px solid var(--dsw-alias-border, #3a3a3a)',
-        background: 'var(--dsw-alias-surface, #1b1b1b)',
-        color: 'inherit', font: 'inherit', outline: 'none',
+        border: `1px solid ${LINE}`, background: '#ffffff', color: INK,
+        font: 'inherit', outline: 'none',
       },
       button: {
         padding: '10px 18px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-        background: 'var(--dsw-alias-accent, #3b82f6)', color: '#fff', font: 'inherit',
+        background: '#2563eb', color: '#fff', font: 'inherit',
         fontWeight: '600', whiteSpace: 'nowrap',
       },
       ghost: {
         padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', font: 'inherit',
-        background: 'transparent', border: '1px solid var(--dsw-alias-border, #3a3a3a)',
-        color: 'inherit',
+        background: '#ffffff', border: `1px solid ${LINE}`, color: INK,
       },
       card: {
-        border: '1px solid var(--dsw-alias-border, #3a3a3a)', borderRadius: '12px',
-        padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px',
-        background: 'var(--dsw-alias-surface, #1b1b1b)',
+        border: `1px solid ${LINE}`, borderRadius: '12px',
+        padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px',
+        background: '#ffffff', boxShadow: '0 1px 2px rgba(16,24,40,.04)',
       },
-      label: { fontSize: '12px', opacity: 0.7, letterSpacing: '0.04em' },
+      label: { fontSize: '12px', color: MUTED, letterSpacing: '0.04em' },
       pre: {
         whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-        fontSize: '13px', lineHeight: '1.65', maxHeight: '320px', overflowY: 'auto',
+        fontSize: '13px', lineHeight: '1.7', maxHeight: '320px', overflowY: 'auto',
+        color: INK,
       },
-      video: { width: '100%', maxHeight: '62vh', borderRadius: '10px', background: '#000' },
+      video: { maxHeight: '70vh', maxWidth: '100%', width: 'auto', borderRadius: '10px', background: '#000', display: 'block' },
       thumbs: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
-      thumb: { height: '150px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border, #3a3a3a)' },
-      meta: { display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', opacity: 0.75 },
+      thumb: { height: '150px', borderRadius: '8px', border: `1px solid ${LINE}` },
+      meta: { display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: MUTED },
       chip: {
         padding: '2px 8px', borderRadius: '999px', fontSize: '11px',
-        border: '1px solid var(--dsw-alias-border, #3a3a3a)',
+        border: `1px solid ${LINE}`, background: SOFT, color: MUTED,
       },
-      note: { fontSize: '12px', opacity: 0.6, lineHeight: '1.6' },
-      err: { color: 'var(--dsw-alias-danger, #f87171)', fontSize: '13px', whiteSpace: 'pre-wrap' },
+      note: { fontSize: '12px', color: MUTED, lineHeight: '1.6' },
+      err: { color: '#b42318', fontSize: '13px', whiteSpace: 'pre-wrap', background: '#fef3f2', padding: '10px 12px', borderRadius: '10px' },
+      fileRow: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+      fileBtn: {
+        fontSize: '12px', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer',
+        border: `1px solid ${LINE}`, background: SOFT, color: INK, font: 'inherit',
+        maxWidth: '520px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      },
     };
 
-    function fileUrl(base, path) {
-      return `${base}api/media-extract/file?p=${encodeURIComponent(path)}`;
+    // 网关不带 query string，所以文件用 POST 取二进制，再转成 blob URL 给 <video>/<img>。
+    async function fetchBlobUrl(base, path) {
+      const res = await fetch(`${base}api/media-extract/file`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${text.slice(0, 80)}`.trim());
+      }
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
     }
+
+    // 让用户选「保存到哪个文件夹」——Chromium 有 showSaveFilePicker，其它浏览器退化成普通下载。
+    async function pickTarget(name) {
+      const picker = typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function'
+        ? window.showSaveFilePicker
+        : null;
+      if (!picker) return { fallback: true };
+      try {
+        const handle = await picker({ suggestedName: name });
+        return { handle };
+      } catch (e) {
+        if (e && e.name === 'AbortError') return null;
+        return { fallback: true };
+      }
+    }
+
+    // 面板在切换标签页时会被卸载，把状态放在模块级，切回来还能看到上一次的结果。
+    const STORE = { url: '', result: null, urls: {}, playNote: '', error: '' };
 
     function Panel() {
       const t = useT();
-      const [url, setUrl] = useState('');
+      const [url, setUrl] = useState(STORE.url);
       const [busy, setBusy] = useState(false);
       const [transcribe, setTranscribe] = useState(true);
-      const [result, setResult] = useState(null);
-      const [error, setError] = useState('');
+      const [result, setResult] = useState(STORE.result);
+      const [error, setError] = useState(STORE.error);
+      const [playNote, setPlayNote] = useState(STORE.playNote);
+      const [urls, setUrls] = useState(STORE.urls);
+      const [savedPath, setSavedPath] = useState('');
       const [elapsed, setElapsed] = useState(0);
       const timerRef = useRef(null);
+      const urlsRef = useRef({ ...STORE.urls });
+
+      useEffect(() => {
+        STORE.url = url; STORE.result = result; STORE.urls = urls;
+        STORE.playNote = playNote; STORE.error = error;
+      }, [url, result, urls, playNote, error]);
 
       const base = (function () {
         try { return new URL('.', document.baseURI).href; } catch { return '/'; }
       })();
 
+      const revokeAll = useCallback(() => {
+        for (const v of Object.values(urlsRef.current)) {
+          try { URL.revokeObjectURL(v); } catch {}
+        }
+        urlsRef.current = {};
+        setUrls({});
+        STORE.urls = {};
+        setSavedPath('');
+      }, []);
+
+      // 结果出来后，把视频和图片逐个取成 blob URL（已有的跳过，避免切标签重复拉）。
+      useEffect(() => {
+        if (!result) return;
+        let cancelled = false;
+        (async () => {
+          const list = [result.media, ...(result.images || [])].filter(Boolean);
+          for (const p of list) {
+            if (cancelled) return;
+            if (urlsRef.current[p]) continue;
+            try {
+              const u = await fetchBlobUrl(base, p);
+              if (cancelled) { try { URL.revokeObjectURL(u); } catch {} return; }
+              urlsRef.current = { ...urlsRef.current, [p]: u };
+              setUrls({ ...urlsRef.current });
+            } catch (e) {
+              if (!cancelled && p === result.media) setPlayNote(`${t('playFail')}：${String((e && e.message) || e)}`);
+            }
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [result, base, t]);
+
       const submit = useCallback(async () => {
         const target = url.trim();
         if (!target || busy) return;
-        setBusy(true); setError(''); setResult(null); setElapsed(0);
+        revokeAll();
+        setBusy(true); setError(''); setPlayNote(''); setResult(null); setElapsed(0);
         const t0 = Date.now();
         timerRef.current = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 500);
         try {
@@ -134,11 +226,65 @@ window.__ModuleLoader__.load({
           clearInterval(timerRef.current);
           setBusy(false);
         }
-      }, [url, busy, transcribe, base, t]);
+      }, [url, busy, transcribe, base, t, revokeAll]);
+
+      const reveal = useCallback(async (path) => {
+        try {
+          const res = await fetch(`${base}api/media-extract/reveal`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+          });
+          const text = await res.text();
+          let data = null;
+          try { data = JSON.parse(text); } catch { data = null; }
+          if (!data || !data.ok) setError((data && data.error) || `打开失败（HTTP ${res.status}）：${text.slice(0, 120)}`);
+        } catch (e) {
+          setError(String((e && e.message) || e));
+        }
+      }, [base]);
+
+      const save = useCallback(async (path) => {
+        const name = String(path).split(/[\\/]/).pop();
+        try {
+          const pick = await pickTarget(name);
+          if (!pick) return;
+          const res = await fetch(`${base}api/media-extract/file`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 80)}`.trim());
+          const blob = await res.blob();
+          if (pick.handle) {
+            const w = await pick.handle.createWritable();
+            await w.write(blob);
+            await w.close();
+          } else {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            a.click();
+            setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch {} }, 4000);
+          }
+          setSavedPath(path);
+        } catch (e) {
+          setError(`保存失败：${String((e && e.message) || e)}`);
+        }
+      }, [base]);
+
+      const clear = useCallback(() => {
+        revokeAll();
+        setResult(null); setError(''); setPlayNote(''); setUrl(''); setSavedPath('');
+        STORE.url = ''; STORE.result = null; STORE.urls = {}; STORE.playNote = ''; STORE.error = '';
+      }, [revokeAll]);
 
       const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } };
 
       const images = (result && result.images) || [];
+      const files = result ? [result.media, ...images, result.txt].filter(Boolean) : [];
 
       return h('div', { style: S.wrap },
         h('div', { style: S.row },
@@ -148,12 +294,13 @@ window.__ModuleLoader__.load({
           }),
           h('button', { style: { ...S.button, opacity: busy ? 0.6 : 1 }, onClick: () => void submit(), disabled: busy },
             busy ? `${t('busy')} ${elapsed}s` : t('go')),
+          h('button', { style: S.ghost, onClick: clear, title: t('clear') }, t('clear')),
         ),
         h('div', { style: S.row },
           h('label', { style: { ...S.note, display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } },
             h('input', { type: 'checkbox', checked: transcribe, onChange: (e) => setTranscribe(e.target.checked) }),
             t('transcribe')),
-          result ? h('button', { style: S.ghost, onClick: () => { setResult(null); setError(''); } }, t('again')) : null,
+          result ? h('button', { style: S.ghost, onClick: () => { revokeAll(); setResult(null); setError(''); setPlayNote(''); } }, t('again')) : null,
         ),
 
         error ? h('div', { style: S.err }, error) : null,
@@ -170,7 +317,16 @@ window.__ModuleLoader__.load({
             result.media
               ? h('div', null,
                 h('div', { style: S.label }, t('video')),
-                h('video', { style: S.video, src: fileUrl(base, result.media), controls: true, playsInline: true }),
+                urls[result.media]
+                  ? h('div', { style: { display: 'flex', justifyContent: 'center', background: 'transparent' } },
+                    h('video', {
+                      style: S.video,
+                      src: urls[result.media],
+                      controls: true,
+                      playsInline: true,
+                    }))
+                  : h('div', { style: { ...S.note, padding: '24px 0' } }, t('loading')),
+                playNote ? h('div', { style: { ...S.note, marginTop: '6px', color: '#b42318' } }, playNote) : null,
               )
               : null,
 
@@ -178,7 +334,9 @@ window.__ModuleLoader__.load({
               ? h('div', null,
                 h('div', { style: S.label }, `${t('images')} · ${images.length}`),
                 h('div', { style: S.thumbs },
-                  images.map((p) => h('img', { key: p, style: S.thumb, src: fileUrl(base, p), loading: 'lazy' })),
+                  images.map((p) => urls[p]
+                    ? h('img', { key: p, style: S.thumb, src: urls[p] })
+                    : h('div', { key: p, style: { ...S.thumb, width: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: SOFT, fontSize: '11px', color: MUTED } }, '…')),
                 ),
               )
               : null,
@@ -192,7 +350,7 @@ window.__ModuleLoader__.load({
 
             h('div', null,
               h('div', { style: S.label }, t('title')),
-              h('div', { style: { fontSize: '14px', fontWeight: '600', wordBreak: 'break-word' } }, result.title || '(无)'),
+              h('div', { style: { fontSize: '14px', fontWeight: '600', wordBreak: 'break-word', color: INK } }, result.title || '(无)'),
             ),
 
             result.text && result.text.trim() && result.text.trim() !== '.'
@@ -202,8 +360,23 @@ window.__ModuleLoader__.load({
               )
               : null,
 
-            h('div', { style: { ...S.label, opacity: 0.5, wordBreak: 'break-all' } },
-              `${t('files')}: ${[result.media, ...images, result.txt].filter(Boolean).join(' · ') || '—'}`),
+            files.length
+              ? h('div', null,
+                h('div', { style: S.label }, t('files')),
+                h('div', { style: S.fileRow },
+                  files.map((p) => h('button', {
+                    key: `open-${p}`, style: S.fileBtn, title: p,
+                    onClick: () => void reveal(p),
+                  }, `${t('open')} · ${p.split(/[\\/]/).pop()}`)),
+                  files.map((p) => h('button', {
+                    key: `dl-${p}`, style: { ...S.fileBtn, borderColor: '#bfdbfe', color: '#1d4ed8', background: '#eff6ff' }, title: p,
+                    onClick: () => void save(p),
+                  }, savedPath === p ? `✓ ${t('saved')}` : `${t('download')} · ${p.split(/[\\/]/).pop()}`)),
+                ),
+                h('div', { style: { ...S.note, marginTop: '6px', wordBreak: 'break-all' } },
+                  `${t('folder')}：${String(result.folder || (result.media || files[0] || '')).replace(/[\\/][^\\/]*$/, '') || '—'}`),
+              )
+              : null,
           )
           : h('div', { style: S.note }, t('hint')),
       );

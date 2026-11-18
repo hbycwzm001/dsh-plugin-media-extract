@@ -24,7 +24,17 @@
 
 图文笔记会把整套原图平铺出来。整个面板不需要跟 Agent 对话，粘完就出结果。
 
-> 面板走同源路由 `/api/media-extract/run`（解析）与 `/api/media-extract/file`（读文件，支持 Range 以便拖动进度条）。
+面板细节：
+
+- **白底黑字**，跟随主题不做深色块
+- 视频**按源片原始比例显示**（竖屏就是竖条，不拉满宽度）
+- 文件旁边有两个按钮：`打开位置`（弹出 output 文件夹）、`下载到…`（自己选文件夹另存）
+- 输入框右边有 `清空`，用来取消上一次解析
+- 切到「对话」再切回来，上一次的结果还在（模块级缓存）
+
+> 面板走同源路由 `/api/media-extract/run`（解析）、`/api/media-extract/file`（POST 取文件，前端转 blob 播放）、`/api/media-extract/reveal`（打开文件夹）、`/api/media-extract/status`（自检）。
+>
+> 注意：DSH 的 fetch 网关**不会把 query string 带进 `request.url`**，所以文件路径走 POST body，不能写成 `?p=`。
 
 ## 工具
 
@@ -73,3 +83,26 @@
 - 抖音/小红书依赖 ego lite 浏览器（`dsh-plugin-ego`）做页面旁路；没装也能跑，但失败率会高。
 - YouTube 机房 IP 容易被判机器人，登录态 cookies + 代理是必需的。
 - HLS 单流约 2Mbps 上限，多分片并发才能跑满带宽。
+
+## 更新记录
+
+### 0.2.3
+
+- 面板改白底黑字
+- 视频按原始宽高比显示，不再出现两侧大黑边
+- 文件改用 `POST /api/media-extract/file` 取二进制 + blob 播放（网关丢弃 query string，旧的 `?p=` 会 400）
+- 新增「下载到…」（`showSaveFilePicker` 选文件夹）与「打开位置」（打开 output 文件夹）
+- 新增「清空」按钮
+- 切换标签页后保留上一次结果（模块级缓存）
+- 修 `explorer /select` 对含空格路径失效的问题
+
+### 0.2.2
+
+- 从整段分享文案里自动抠链接
+- 还原 `xhslink.cn` 短链到 `discovery/item/<id>?xsec_token=...`
+- 同一条链接并发解析改为串行排队，避免 Windows 文件占用
+
+### 0.2.1
+
+- 修 `output.schema` 缺 `additionalProperties` 导致整个插件加载失败
+- `render` 返回数组；返回值过滤 `undefined`

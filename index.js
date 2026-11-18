@@ -208,39 +208,18 @@ const MIME = {
 };
 
 /** 只允许读引擎目录里的文件，防目录穿越。 */
-function serveFile(config, request) {
-  const params = new URL(request.url).searchParams;
-  const raw = params.get('p');
-  if (!raw) return new Response('missing p', { status: 400 });
+function serveFile(config, rawPath) {
+  const raw = String(rawPath || '');
+  if (!raw) return new Response('missing path', { status: 400 });
   const target = resolve(raw);
   const root = resolve(homeOf(config));
   if (target !== root && !target.startsWith(root + sep)) return new Response('forbidden', { status: 403 });
   if (!existsSync(target)) return new Response('not found', { status: 404 });
   const buf = readFileSync(target);
   const type = MIME[extname(target).toLowerCase()] || 'application/octet-stream';
-  const range = request.headers.get('range');
-  if (range) {
-    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-    if (m) {
-      const start = m[1] === '' ? Math.max(0, buf.length - Number(m[2])) : Number(m[1]);
-      const end = m[1] !== '' && m[2] !== '' ? Math.min(Number(m[2]), buf.length - 1) : buf.length - 1;
-      if (start <= end && start < buf.length) {
-        return new Response(buf.subarray(start, end + 1), {
-          status: 206,
-          headers: {
-            'content-type': type,
-            'content-length': String(end - start + 1),
-            'content-range': `bytes ${start}-${end}/${buf.length}`,
-            'accept-ranges': 'bytes',
-            'cache-control': 'no-store',
-          },
-        });
-      }
-    }
-  }
   return new Response(buf, {
     status: 200,
-    headers: { 'content-type': type, 'content-length': String(buf.length), 'accept-ranges': 'bytes', 'cache-control': 'no-store' },
+    headers: { 'content-type': type, 'content-length': String(buf.length), 'cache-control': 'no-store' },
   });
 }
 
@@ -389,14 +368,54 @@ export function apply(ctx, config) {
       },
     }), 'media-extract: /api/media-extract/run');
 
+    // 网关不会把 query string 带进 request.url，所以文件用 POST + JSON body 传路径，
+    // 浏览器端拿 arrayBuffer 转 blob 再播放/显示。
     scope.effect(() => scope.connection.fetch.register({
       path: '/api/media-extract/file',
-      methods: ['GET'],
-      requestBody: 'none',
-      fetch: (request) => {
-        try { return serveFile(config, request); } catch (error) { return new Response(String(error), { status: 500 }); }
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        try {
+          let body = {};
+          try { body = await request.json(); } catch { body = {}; }
+          return serveFile(config, String(body.path || ''));
+        } catch (error) { return new Response(String(error), { status: 500 }); }
       },
     }), 'media-extract: /api/media-extract/file');
+
+    scope.effect(() => scope.connection.fetch.register({
+      path: '/api/media-extract/reveal',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let body = {};
+        try { body = await request.json(); } catch { body = {}; }
+        const target = String(body.path || '').trim();
+        if (!target) return Response.json({ ok: false, error: '缺少 path' }, { status: 400 });
+        const home = resolve(homeOf(config));
+        const abs = resolve(target);
+        if (abs !== home && !abs.startsWith(home + sep)) {
+          return Response.json({ ok: false, error: `只允许打开工具目录下的文件：${home}` }, { status: 403 });
+        }
+        if (!existsSync(abs)) return Response.json({ ok: false, error: `文件不存在：${abs}` }, { status: 404 });
+        const dir = dirname(abs);
+        try {
+          if (platform() === 'win32') {
+            // 只开目录：explorer 的 /select 对含空格路径经常被忽略，开目录最可靠。
+            const child = spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' });
+            child.on('error', () => {});
+            child.unref();
+          } else if (platform() === 'darwin') {
+            spawn('open', ['-R', abs], { detached: true, stdio: 'ignore' }).unref();
+          } else {
+            spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
+          }
+        } catch (error) {
+          return Response.json({ ok: false, error: String(error) }, { status: 500 });
+        }
+        return Response.json({ ok: true, path: abs, dir });
+      },
+    }), 'media-extract: /api/media-extract/reveal');
 
     scope.effect(() => scope.connection.fetch.register({
       path: '/api/media-extract/status',

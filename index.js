@@ -44,7 +44,7 @@ function readConfig(config) {
   }
 }
 
-function run(exe, args, timeoutMs) {
+function run(exe, args, timeoutMs, input) {
   return new Promise((resolve) => {
     const child = spawn(exe, args, {
       cwd: dirname(exe) === '.' ? process.cwd() : dirname(exe),
@@ -67,6 +67,10 @@ function run(exe, args, timeoutMs) {
       clearTimeout(timer);
       resolve({ code: code ?? 0, out, err });
     });
+    if (input !== undefined) {
+      try { child.stdin.write(input, 'utf8'); } catch {}
+    }
+    try { child.stdin.end(); } catch {}
   });
 }
 
@@ -432,6 +436,31 @@ export function apply(ctx, config) {
         return Response.json({ ok: true, path: abs, dir });
       },
     }), 'media-extract: /api/media-extract/reveal');
+
+    scope.effect(() => scope.connection.fetch.register({
+      path: '/api/media-extract/polish',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        let body = {};
+        try { body = await request.json(); } catch { body = {}; }
+        const text = String(body.text || '');
+        if (!text.trim()) return Response.json({ ok: false, error: '缺少 text' }, { status: 400 });
+        const args = ['--polish'];
+        if (body.title) args.push('--title', String(body.title).slice(0, 200));
+        if (body.caption) args.push('--caption', String(body.caption).slice(0, 500));
+        const r = await run(binOf(config), args, 60000, text);
+        const fixed = String(r.out || '').trim();
+        if (!fixed) {
+          return Response.json({
+            ok: false,
+            error: r.err ? `纠错失败：${r.err.slice(-300)}` : '纠错没有返回内容',
+          }, { status: 200, headers: { 'cache-control': 'no-store' } });
+        }
+        return Response.json({ ok: true, text: fixed, changed: fixed !== text },
+          { headers: { 'cache-control': 'no-store' } });
+      },
+    }), 'media-extract: /api/media-extract/polish');
 
     scope.effect(() => scope.connection.fetch.register({
       path: '/api/media-extract/status',

@@ -51,6 +51,13 @@ window.__ModuleLoader__.load({
       failed: '解析失败',
       playFail: '视频加载失败',
       loading: '正在读取文件…',
+      fix: '✎ 纠错别字',
+      fixing: '纠错中…',
+      fixTitle: '用大模型纠正转写里的同音错字、补标点（不改内容）',
+      fixFail: '纠错失败',
+      undo: '还原本',
+      undoTitle: '显示语音识别的原始文本',
+      polishedTag: '已纠错',
     };
     const EN = {
       tab: 'Extract',
@@ -77,6 +84,13 @@ window.__ModuleLoader__.load({
       failed: 'Extraction failed',
       playFail: 'Video failed to load',
       loading: 'Reading file…',
+      fix: '✎ Proofread',
+      fixing: 'Proofreading…',
+      fixTitle: 'Fix homophone typos and punctuation with an LLM (content unchanged)',
+      fixFail: 'Proofreading failed',
+      undo: 'Undo',
+      undoTitle: 'Show the raw speech-to-text output',
+      polishedTag: 'proofread',
     };
 
     const INK = '#1a1a1a';
@@ -217,7 +231,7 @@ window.__ModuleLoader__.load({
     // 切走再切回来能接着显示进度，解析完成后结果也不会丢。
     const STORE = {
       url: '', result: null, urls: {}, playNote: '', error: '',
-      busy: false, startedAt: 0,
+      busy: false, startedAt: 0, fixed: '',
     };
     const SUBS = new Set();
     function notify() {
@@ -234,6 +248,7 @@ window.__ModuleLoader__.load({
       STORE.error = '';
       STORE.playNote = '';
       STORE.result = null;
+      STORE.fixed = '';
       notify();
       JOB = (async () => {
         try {
@@ -275,6 +290,8 @@ window.__ModuleLoader__.load({
       const [urls, setUrls] = useState(STORE.urls);
       const [savedPath, setSavedPath] = useState('');
       const [preview, setPreview] = useState(null);
+      const [fixed, setFixed] = useState(STORE.fixed || '');
+      const [polishing, setPolishing] = useState(false);
       const [elapsed, setElapsed] = useState(
         STORE.busy && STORE.startedAt ? Math.round((Date.now() - STORE.startedAt) / 1000) : 0,
       );
@@ -289,6 +306,7 @@ window.__ModuleLoader__.load({
           setPlayNote(STORE.playNote);
           setElapsed(STORE.busy && STORE.startedAt
             ? Math.round((Date.now() - STORE.startedAt) / 1000) : 0);
+          setFixed(STORE.fixed || '');
         };
         SUBS.add(sync);
         sync();
@@ -410,10 +428,45 @@ window.__ModuleLoader__.load({
       const again = useCallback(() => {
         if (STORE.busy) return;
         revokeAll();
-        setResult(null); setError(''); setPlayNote('');
-        STORE.result = null; STORE.error = ''; STORE.playNote = '';
+        setResult(null); setError(''); setPlayNote(''); setFixed('');
+        STORE.result = null; STORE.error = ''; STORE.playNote = ''; STORE.fixed = '';
         notify();
       }, [revokeAll]);
+
+      const shownText = useCallback((r) => {
+        if (!r || r.text === undefined) return '';
+        return fixed || r.text;
+      }, [fixed]);
+
+      // 「纠错」按钮：把转写文本交给大模型只做错别字/标点修正
+      const doPolish = useCallback(async () => {
+        if (polishing || !result || result.text === undefined) return;
+        setPolishing(true);
+        setError('');
+        try {
+          const res = await fetch(`${base}api/media-extract/polish`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              text: fixed || result.text,
+              title: result.title || '',
+              caption: result.caption || '',
+            }),
+          });
+          const raw = await res.text();
+          let data;
+          try { data = JSON.parse(raw); } catch {
+            throw new Error(`纠错接口返回异常（HTTP ${res.status}）：${raw.slice(0, 160)}`);
+          }
+          if (!data.ok) setError(data.error || t('fixFail'));
+          else { setFixed(data.text || ''); STORE.fixed = data.text || ''; notify(); }
+        } catch (e) {
+          setError(String((e && e.message) || e));
+        } finally {
+          setPolishing(false);
+        }
+      }, [polishing, result, fixed, base, t]);
 
       const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } };
 
@@ -502,14 +555,32 @@ window.__ModuleLoader__.load({
               ? h('div', null,
                 h('div', { style: S.labelRow },
                   h('span', { style: S.label },
-                    `${t('text')}${result.text && result.text.replace(/\s/g, '').length > 1
-                      ? ` · ${result.text.replace(/\s/g, '').length} 字` : ''}`),
-                  result.text && result.text.replace(/\s/g, '').length > 1
-                    ? h(CopyBtn, { text: result.text, label: t('copy'), doneLabel: t('copied') })
-                    : null,
+                    `${t('text')}${(shownText(result) || '').replace(/\s/g, '').length > 1
+                      ? ` · ${(shownText(result) || '').replace(/\s/g, '').length} 字` : ''}
+                    ${fixed && fixed !== result.text ? ` · ${t('polishedTag')}` : ''}`),
+                  h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+                    result.text && result.text.replace(/\s/g, '').length > 1
+                      ? h('button', {
+                        style: { ...S.fileBtn, padding: '3px 8px', fontSize: '12px', opacity: polishing ? 0.6 : 1 },
+                        disabled: polishing,
+                        title: t('fixTitle'),
+                        onClick: () => void doPolish(),
+                      }, polishing ? t('fixing') : t('fix'))
+                      : null,
+                    fixed && fixed !== result.text
+                      ? h('button', {
+                        style: { ...S.fileBtn, padding: '3px 8px', fontSize: '12px' },
+                        title: t('undoTitle'),
+                        onClick: () => { setFixed(''); STORE.fixed = ''; notify(); },
+                      }, t('undo'))
+                      : null,
+                    result.text && result.text.replace(/\s/g, '').length > 1
+                      ? h(CopyBtn, { text: shownText(result), label: t('copy'), doneLabel: t('copied') })
+                      : null,
+                  ),
                 ),
                 h('pre', { style: S.pre },
-                  result.text && result.text.replace(/\s/g, '').length > 1 ? result.text : t('noSpeech')),
+                  (shownText(result) || '').replace(/\s/g, '').length > 1 ? shownText(result) : t('noSpeech')),
               )
               : null,
 

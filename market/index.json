@@ -53,12 +53,12 @@
       },
       "versions": [
         {
-          "version": "0.2.8",
-          "publishTimestamp": 1794988572,
+          "version": "0.2.9",
+          "publishTimestamp": 1794993281,
           "source": {
             "type": "git",
             "url": "https://github.com/hbycwzm001/dsh-plugin-media-extract",
-            "commit": "2761cfcac21c7d75bbc0f030e5deb33e9fa603a4"
+            "commit": "7fff3718dad916a04982368d6dcf4957923df501"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.1"

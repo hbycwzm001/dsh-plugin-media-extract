@@ -97,12 +97,87 @@ function compact(obj) {
 }
 
 /** 跑一次解析，返回给工具和网页面板共用的结果对象。 */
-async function extractOne(config, { url, transcribe, preferBrowser }) {
+/** 用户常常整段粘贴分享文案，这里把里面的链接抠出来。 */
+function pickUrl(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  const m = s.match(/https?:\/\/[^\s"'<>（）()【】\[\]{}，。；、]+/i);
+  if (!m) return s;
+  let u = m[0];
+  u = u.replace(/[.,;:!?、，。；：！？"'）)】\]}]+$/u, '');
+  return u;
+}
+
+const MOBILE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ' +
+  '(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+/**
+ * 小红书短链（xhslink.cn）现在会跳到登录页，真正的地址藏在 redirectPath 里。
+ * 这里把它还原成 discovery/item/<id>?xsec_token=...，再交给浏览器旁路去抓。
+ */
+async function resolveShortLink(input) {
+  let host = '';
+  try {
+    host = new URL(input).hostname;
+  } catch {
+    return input;
+  }
+  if (!/^xhslink\./i.test(host)) return input;
+
+  let loc = '';
+  try {
+    const res = await fetch(input, { redirect: 'manual', headers: { 'user-agent': MOBILE_UA } });
+    loc = res.headers.get('location') || '';
+    if (!loc) {
+      const followed = await fetch(input, { redirect: 'follow', headers: { 'user-agent': MOBILE_UA } });
+      loc = followed.url || '';
+    }
+  } catch {
+    return input;
+  }
+  if (!loc) return input;
+
+  try {
+    const lu = new URL(loc);
+    const redirectPath = lu.searchParams.get('redirectPath');
+    if (redirectPath) {
+      const inner = new URL(redirectPath);
+      const hit = inner.pathname.match(/item\/([0-9a-z]+)/i);
+      if (hit) {
+        const token = inner.searchParams.get('xsec_token');
+        const q = token
+          ? `?xsec_token=${encodeURIComponent(token)}&xsec_source=app_share`
+          : '';
+        return `https://www.xiaohongshu.com/discovery/item/${hit[1]}${q}`;
+      }
+    }
+    return loc;
+  } catch {
+    return loc || input;
+  }
+}
+
+/** 串行队列：并发点两次解析也不会互相抢同名临时文件。 */
+let _queue = Promise.resolve();
+
+function extractOne(config, args) {
+  const next = _queue.then(
+    () => extractUnlocked(config, args),
+    () => extractUnlocked(config, args),
+  );
+  _queue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+async function extractUnlocked(config, { url, transcribe, preferBrowser }) {
   const exe = binOf(config);
   if (!existsSync(exe)) {
     return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
   }
-  const argv = [url];
+  const target = await resolveShortLink(pickUrl(url));
+  if (!target) return { ok: false, error: '没有识别到链接' };
+  const argv = [target];
   if (transcribe === false) argv.push('--no-transcribe');
   if (preferBrowser) argv.push('--browser');
   const t0 = Date.now();

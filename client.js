@@ -115,10 +115,17 @@ window.__ModuleLoader__.load({
         try {
           const res = await fetch(`${base}api/media-extract/run`, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ url: target, transcribe }),
           });
-          const data = await res.json();
+          const text = await res.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error(`接口返回异常（HTTP ${res.status}）：${text.slice(0, 200)}`);
+          }
           if (!data.ok) setError(data.error || t('failed'));
           else setResult(data);
         } catch (e) {

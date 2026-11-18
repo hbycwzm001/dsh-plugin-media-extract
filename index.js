@@ -87,6 +87,15 @@ function lastJson(text) {
   }
 }
 
+/** 去掉 undefined，保证返回值是合法 JSON。 */
+function compact(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined && v !== null) out[k] = v;
+  }
+  return out;
+}
+
 /** 跑一次解析，返回给工具和网页面板共用的结果对象。 */
 async function extractOne(config, { url, transcribe, preferBrowser }) {
   const exe = binOf(config);
@@ -101,7 +110,7 @@ async function extractOne(config, { url, transcribe, preferBrowser }) {
   const data = lastJson(res.out) || lastJson(res.err);
   if (!data) return { ok: false, error: clip(res.err || res.out || '没有输出', 1200) };
   const ok = data.status === 'ok';
-  return {
+  return compact({
     ok,
     platform: data.platform,
     type: data.type,
@@ -114,7 +123,7 @@ async function extractOne(config, { url, transcribe, preferBrowser }) {
     bytes: data.bytes || undefined,
     seconds: Math.round((Date.now() - t0) / 100) / 10,
     error: ok ? undefined : data.message || '解析失败',
-  };
+  });
 }
 
 const MIME = {
@@ -175,6 +184,7 @@ function makeExtractTool(config) {
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           ok: { type: 'boolean', required: true },
           platform: { type: 'string' },
@@ -190,15 +200,15 @@ function makeExtractTool(config) {
           error: { type: 'string' },
         },
       },
-      render: (v) => {
-        if (!v.ok) return `解析失败：${v.error || '未知错误'}`;
+      render: (_args, v) => {
+        if (!v.ok) return [{ type: 'text', text: `解析失败：${v.error || '未知错误'}` }];
         const lines = [`✓ ${v.title || '(无标题)'}`];
         if (v.media) lines.push(`原片：${v.media}`);
         if (v.images && v.images.length) lines.push(`图片 ${v.images.length} 张：${v.images[0]} …`);
         if (v.txt) lines.push(`文案文件：${v.txt}`);
         if (v.caption) lines.push(`文案：${clip(v.caption, 300)}`);
         if (v.text && v.text.trim() && v.text.trim() !== '.') lines.push(`转写：${clip(v.text, 400)}`);
-        return lines.join('\n');
+        return [{ type: 'text', text: lines.join('\n') }];
       },
     },
     async execute(args) {
@@ -215,20 +225,21 @@ function makeSetupTool(config) {
       'action=config 读写 config.json（代理、画质、cookie 等）。首次使用先跑 check。',
     parameters: {
       action: { type: 'string', required: true, enum: ['check', 'download', 'config'], description: '动作' },
-      patch: { type: 'object', description: 'action=config 时要合并进 config.json 的键值' },
+      patch: { type: 'object', additionalProperties: true, description: 'action=config 时要合并进 config.json 的键值' },
     },
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           ready: { type: 'boolean' },
           bin: { type: 'string' },
           home: { type: 'string' },
-          config: { type: 'object' },
+          config: { type: 'object', additionalProperties: true },
           message: { type: 'string' },
         },
       },
-      render: (v) => v.message || (v.ready ? `已就绪：${v.bin}` : '未就绪'),
+      render: (_args, v) => [{ type: 'text', text: v.message || (v.ready ? `已就绪：${v.bin}` : '未就绪') }],
     },
     async execute(args) {
       const home = homeOf(config);

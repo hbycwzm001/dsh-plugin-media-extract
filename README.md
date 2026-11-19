@@ -2,6 +2,8 @@
 
 把一条链接变成 **原片 + 文案 + 转写文本**，全平台通用，全部在本地跑。
 
+> 📖 **完整使用手册：[docs/使用手册.md](docs/使用手册.md)**（安装、依赖与模型清单、代理怎么填、ego 登录态、常见问题）
+
 支持的平台：
 
 | 平台 | 能力 |
@@ -49,10 +51,30 @@
 - `transcribe`：是否转写，默认 `true`
 - `preferBrowser`：抖音/小红书强制走浏览器旁路，默认 `false`
 
+
+## 依赖与模型（明确清单）
+
+**必须**：DSH Desktop ≥ 0.2.2-rc.1、本插件、解析引擎 `extract.exe`（约 240MB zip，首次解析自动下载）。
+
+**引擎包内已包含**（用户无需另装 Python / Node / ffmpeg）：
+
+| 组件 | 用途 | 体积 |
+|---|---|---|
+| Python 运行时（PyInstaller 冻结） | 运行引擎 | 内置 |
+| yt-dlp + yt-dlp-ejs | 海外平台下载、解 YouTube n 挑战 | 内置 |
+| quickjs | JS 运行时，替代 Node | 内置 |
+| ffmpeg | 合并音视频 / HLS | 内置 |
+| sherpa-onnx + **SenseVoice-Small int8 模型** | 语音转文字（中英日韩粤） | **228MB** |
+
+模型随包下发，落在 `~/.dsh/media-extract/extract-tool/models/sense-voice-onnx/`，**不需要单独下载**。
+
+**可选**：ego lite 浏览器（抖音/小红书图文、登录墙页面）、代理出口（YouTube/TikTok/X/IG/FB）、各平台登录态（cookies 自动导出）。
+
 ## 首次使用
 
 1. `media_setup(action="check")` —— 看引擎在不在
-2. 不在就 `media_setup(action="download")` —— 下载约 400MB 引擎包并解压到 `~/.dsh/media-extract/extract-tool`
+2. 不在就 `media_setup(action="download")` —— 下载约 240MB 引擎包并解压到 `~/.dsh/media-extract/extract-tool`
+   （装了插件第一次解析时也会**自动下载**，见下面的 `autoInstall`）
 3. 海外平台需要代理：`media_setup(action="config", patch={ youtube_proxy: "http://127.0.0.1:7897" })`
 4. 需要登录态的平台（YouTube/TikTok/Facebook/X/Instagram）：把 cookies 放进引擎目录的 `cookies/<平台>.txt`
 
@@ -66,6 +88,7 @@
 | `homeDir` | 空 | 工具目录，空则用 `~/.dsh/media-extract` |
 | `timeoutMs` | 900000 | 单次解析超时 |
 | `maxChars` | 20000 | 回给模型的文本上限 |
+| `autoInstall` | true | 引擎缺失时自动下载安装（首次解析会下载约 240MB） |
 
 引擎层（引擎目录下 `config.json`）：
 

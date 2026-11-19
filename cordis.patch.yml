@@ -6,3 +6,4 @@
         homeDir: ""
         timeoutMs: 900000
         maxChars: 20000
+        autoInstall: true

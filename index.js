@@ -14,6 +14,7 @@ export const Config = z.object({
   timeoutMs: z.number().default(900000).description('单次解析超时（毫秒）'),
   maxChars: z.number().default(20000).description('回给模型的文本上限'),
   outputDir: z.string().default('').description('解析产物保存目录；留空则用非系统盘的 工作台 目录（如 D:\\工作台）'),
+  autoInstall: z.boolean().default(true).description('首次解析时若引擎缺失则自动下载安装（约 240MB）'),
 });
 
 const PKG_URL = 'https://github.com/hbycwzm001/media-extract-tool/releases/latest/download/extract-tool-win64.zip';
@@ -72,6 +73,30 @@ function run(exe, args, timeoutMs, input) {
     }
     try { child.stdin.end(); } catch {}
   });
+}
+
+const PKG_FALLBACKS = [
+  PKG_URL,
+  'https://hbycwzm001.github.io/media-extract-tool/extract-tool-win64.zip',
+];
+
+/** 首次使用时自动安装引擎：下载 → 解压 → 校验 exe。返回是否成功。 */
+async function installEngine(config) {
+  const home = homeOf(config);
+  const exe = binOf(config);
+  if (existsSync(exe)) return true;
+  mkdirSync(home, { recursive: true });
+  const zip = join(home, 'extract-tool.zip');
+  for (const url of PKG_FALLBACKS) {
+    const ps =
+      `$ProgressPreference='SilentlyContinue';` +
+      `Invoke-WebRequest -Uri '${url}' -OutFile '${zip}' -UseBasicParsing;` +
+      `Expand-Archive -Path '${zip}' -DestinationPath '${join(home, 'extract-tool')}' -Force;` +
+      `Remove-Item '${zip}' -Force`;
+    await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], 45 * 60 * 1000);
+    if (existsSync(exe)) return true;
+  }
+  return existsSync(exe);
 }
 
 function lastJson(text) {
@@ -178,7 +203,16 @@ function extractOne(config, args) {
 async function extractUnlocked(config, { url, transcribe, preferBrowser }) {
   const exe = binOf(config);
   if (!existsSync(exe)) {
-    return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
+    if (!config.autoInstall) {
+      return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
+    }
+    const ok = await installEngine(config);
+    if (!ok) {
+      return {
+        ok: false,
+        error: `引擎还没装好，自动下载也失败了。请手动下载 ${PKG_URL}，解压到 ${join(homeOf(config), 'extract-tool')}`,
+      };
+    }
   }
   const target = await resolveShortLink(pickUrl(url));
   if (!target) return { ok: false, error: '没有识别到链接' };
@@ -344,21 +378,15 @@ function makeSetupTool(config) {
       if (existsSync(exe)) {
         return { ready: true, bin: exe, home, config: readConfig(config), message: `已存在，无需下载：${exe}` };
       }
-      mkdirSync(home, { recursive: true });
-      const zip = join(home, 'extract-tool.zip');
-      const ps =
-        `$ProgressPreference='SilentlyContinue';` +
-        `Invoke-WebRequest -Uri '${PKG_URL}' -OutFile '${zip}' -UseBasicParsing;` +
-        `Expand-Archive -Path '${zip}' -DestinationPath '${join(home, 'extract-tool')}' -Force;` +
-        `Remove-Item '${zip}' -Force`;
-      const res = await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], 30 * 60 * 1000);
-      const ready = existsSync(exe);
+      const ok = await installEngine(config);
       return {
-        ready,
+        ready: ok,
         bin: exe,
         home,
         config: readConfig(config),
-        message: ready ? `下载完成：${exe}` : `下载失败：${clip(res.err || res.out, 800)}`,
+        message: ok
+          ? `下载完成：${exe}\n下一步：media_setup action=config 填代理和账号（可选），然后直接在「解析」里粘链接。`
+          : `下载失败。可手动下载 ${PKG_URL} 解压到 ${join(home, 'extract-tool')}`,
       };
     },
   });

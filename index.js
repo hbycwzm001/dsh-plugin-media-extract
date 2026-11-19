@@ -329,7 +329,7 @@ function makeSetupTool(config) {
   return defineTool({
     name: 'media_setup',
     description:
-      '安装/检查/配置 media_extract 的本地引擎。action=check 检查是否就绪；action=download 下载并解压引擎包（约 400MB）；' +
+      '安装/检查/配置 media_extract 的本地引擎。action=check 检查是否就绪；action=download 下载并解压引擎包（约 240MB，引擎缺失时首次解析会自动安装）；' +
       'action=config 读写 config.json（代理、画质、cookie 等）。首次使用先跑 check。',
     parameters: {
       action: { type: 'string', required: true, enum: ['check', 'download', 'config'], description: '动作' },

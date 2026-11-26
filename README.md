@@ -104,6 +104,8 @@
 
 ## 已知限制
 
+- **安全提示**：本插件的同源接口（`/api/media-extract/*`）没有额外鉴权，只适合本机使用。不要把 DSH 的 Web 接口暴露到局域网或公网，也不要用反向代理转发出去，否则别人能借这些接口在本机触发下载、读取解析产物。
+- **发版提醒**：先提交代码拿到新 commit，再用这个 commit 重跑 `market/build-index.mjs` 重新生成 `market/index.json`，避免市场索引钉住旧 commit、装到的和仓库里看的不是同一份代码。
 - 抖音/小红书依赖 ego lite 浏览器（`dsh-plugin-ego`）做页面旁路；没装也能跑，但失败率会高。
 - YouTube 机房 IP 容易被判机器人，登录态 cookies + 代理是必需的。
 - HLS 单流约 2Mbps 上限，多分片并发才能跑满带宽。

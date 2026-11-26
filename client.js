@@ -33,6 +33,8 @@ window.__ModuleLoader__.load({
       again: '再解析一条',
       busy: '正在解析…',
       transcribe: '转写语音',
+      browserMode: '强制浏览器模式',
+      engineTip: '引擎还没装：第一次解析会自动下载引擎（约 240MB），耗时较久，期间别关页面。',
       video: '视频',
       images: '图片',
       caption: '文案',
@@ -66,6 +68,8 @@ window.__ModuleLoader__.load({
       again: 'Extract another',
       busy: 'Extracting…',
       transcribe: 'Transcribe audio',
+      browserMode: 'Browser mode',
+      engineTip: 'Engine not installed yet: the first extraction downloads it automatically (~240 MB) and can take a while — keep this page open.',
       video: 'Video',
       images: 'Images',
       caption: 'Caption',
@@ -241,7 +245,7 @@ window.__ModuleLoader__.load({
     }
     let JOB = null;
 
-    function runJob(target, tr, base) {
+    function runJob(target, tr, pb, base) {
       if (STORE.busy) return JOB;
       STORE.busy = true;
       STORE.startedAt = Date.now();
@@ -256,7 +260,7 @@ window.__ModuleLoader__.load({
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ url: target, transcribe: tr }),
+            body: JSON.stringify({ url: target, transcribe: tr, preferBrowser: pb }),
           });
           const text = await res.text();
           let data;
@@ -284,6 +288,9 @@ window.__ModuleLoader__.load({
       const [url, setUrl] = useState(STORE.url);
       const [busy, setBusy] = useState(STORE.busy);
       const [transcribe, setTranscribe] = useState(true);
+      const [preferBrowser, setPreferBrowser] = useState(false);
+      const [engineReady, setEngineReady] = useState(null);
+      const engineReadyRef = useRef(null);
       const [result, setResult] = useState(STORE.result);
       const [error, setError] = useState(STORE.error);
       const [playNote, setPlayNote] = useState(STORE.playNote);
@@ -329,6 +336,25 @@ window.__ModuleLoader__.load({
         try { return new URL('.', document.baseURI).href; } catch { return '/'; }
       })();
 
+      // 挂载时先查引擎状态：没装时给一条提示，别让用户对着转圈干等 240MB 下载。
+      useEffect(() => {
+        let cancelled = false;
+        const check = async () => {
+          try {
+            const res = await fetch(`${base}api/media-extract/status`, { credentials: 'same-origin' });
+            const data = await res.json();
+            if (cancelled) return;
+            engineReadyRef.current = !!data.ready;
+            setEngineReady(!!data.ready);
+          } catch { /* 查不到就不提示，避免误报 */ }
+        };
+        void check();
+        const id = setInterval(() => {
+          if (!STORE.busy && !engineReadyRef.current) void check();
+        }, 20000);
+        return () => { cancelled = true; clearInterval(id); };
+      }, [base]);
+
       const revokeAll = useCallback(() => {
         for (const v of Object.values(urlsRef.current)) {
           try { URL.revokeObjectURL(v); } catch {}
@@ -367,8 +393,8 @@ window.__ModuleLoader__.load({
         if (!target || STORE.busy) return;
         revokeAll();
         STORE.url = target;
-        void runJob(target, transcribe, base);
-      }, [url, transcribe, base, revokeAll]);
+        void runJob(target, transcribe, preferBrowser, base);
+      }, [url, transcribe, preferBrowser, base, revokeAll]);
 
       const reveal = useCallback(async (path) => {
         try {
@@ -488,8 +514,15 @@ window.__ModuleLoader__.load({
           h('label', { style: { ...S.note, display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } },
             h('input', { type: 'checkbox', checked: transcribe, onChange: (e) => setTranscribe(e.target.checked) }),
             t('transcribe')),
+          h('label', { style: { ...S.note, display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } },
+            h('input', { type: 'checkbox', checked: preferBrowser, onChange: (e) => setPreferBrowser(e.target.checked) }),
+            t('browserMode')),
           result ? h('button', { style: S.ghost, onClick: again }, t('again')) : null,
         ),
+
+        engineReady === false
+          ? h('div', { style: { ...S.note, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 12px', borderRadius: '10px' } }, t('engineTip'))
+          : null,
 
         error ? h('div', { style: S.err }, error) : null,
 
@@ -622,13 +655,17 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'media-extract: dictionaries');
         const bind = ctx.locale.bind ? ctx.locale.bind(NS) : null;
         if (bind) currentT = (k) => bind(k);
-        ctx.slots.inject('conversation.view', () => ctx.slots.register({
-          name: 'conversation.view',
-          id: 'media-extract',
-          order: 40,
-          locale: NS,
-          label: () => (currentT('tab') || '解析'),
-        }, Panel));
+        try {
+          ctx.slots.inject('conversation.view', () => ctx.slots.register({
+            name: 'conversation.view',
+            id: 'media-extract',
+            order: 40,
+            locale: NS,
+            label: () => (currentT('tab') || '解析'),
+          }, Panel));
+        } catch (error) {
+          console.warn('[media-extract] conversation.view registration failed:', error);
+        }
       },
     };
   },

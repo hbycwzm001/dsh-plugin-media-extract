@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
@@ -45,6 +45,28 @@ function readConfig(config) {
   }
 }
 
+/** 只保留输出尾部 64KB：结果 JSON 在尾部，够 lastJson 用，又不会让长任务把内存撑爆。 */
+const TAIL_LIMIT = 64 * 1024;
+function tailAppend(buf, chunk) {
+  const next = buf + chunk;
+  return next.length > TAIL_LIMIT ? next.slice(next.length - TAIL_LIMIT) : next;
+}
+
+/** 超时终止要杀整棵进程树：只杀主进程，它拉起的 Chrome / yt-dlp 会残留。 */
+function killTree(child) {
+  if (!child || !child.pid) return;
+  if (platform() === 'win32') {
+    try {
+      const tk = execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => {});
+      tk.on('error', () => { try { child.kill(); } catch {} });
+      return;
+    } catch {}
+  } else {
+    try { process.kill(-child.pid, 'SIGKILL'); return; } catch {}
+  }
+  try { child.kill('SIGKILL'); } catch {}
+}
+
 function run(exe, args, timeoutMs, input) {
   return new Promise((resolve) => {
     const child = spawn(exe, args, {
@@ -55,11 +77,11 @@ function run(exe, args, timeoutMs, input) {
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
-      child.kill();
+      killTree(child);
       resolve({ code: -1, out, err: `${err}\n（超时 ${timeoutMs}ms，已终止）` });
     }, timeoutMs);
-    child.stdout.on('data', (d) => (out += d.toString('utf8')));
-    child.stderr.on('data', (d) => (err += d.toString('utf8')));
+    child.stdout.on('data', (d) => (out = tailAppend(out, d.toString('utf8'))));
+    child.stderr.on('data', (d) => (err = tailAppend(err, d.toString('utf8'))));
     child.on('error', (e) => {
       clearTimeout(timer);
       resolve({ code: -1, out, err: String((e && e.message) || e) });
@@ -80,23 +102,26 @@ const PKG_FALLBACKS = [
   'https://hbycwzm001.github.io/media-extract-tool/extract-tool-win64.zip',
 ];
 
-/** 首次使用时自动安装引擎：下载 → 解压 → 校验 exe。返回是否成功。 */
+/** 首次使用时自动安装引擎：下载 → 解压 → 校验 exe。失败时带回 PowerShell 报错的尾部，别吞掉。 */
 async function installEngine(config) {
   const home = homeOf(config);
   const exe = binOf(config);
-  if (existsSync(exe)) return true;
+  if (existsSync(exe)) return { ok: true, error: '' };
   mkdirSync(home, { recursive: true });
   const zip = join(home, 'extract-tool.zip');
+  let lastError = '';
   for (const url of PKG_FALLBACKS) {
     const ps =
       `$ProgressPreference='SilentlyContinue';` +
       `Invoke-WebRequest -Uri '${url}' -OutFile '${zip}' -UseBasicParsing;` +
       `Expand-Archive -Path '${zip}' -DestinationPath '${join(home, 'extract-tool')}' -Force;` +
       `Remove-Item '${zip}' -Force`;
-    await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], 45 * 60 * 1000);
-    if (existsSync(exe)) return true;
+    const r = await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], 45 * 60 * 1000);
+    if (existsSync(exe)) return { ok: true, error: '' };
+    const tail = String(r.err || '').trim().slice(-300);
+    lastError = tail || `PowerShell 退出码 ${r.code}，没有更多输出`;
   }
-  return existsSync(exe);
+  return { ok: existsSync(exe), error: lastError };
 }
 
 function lastJson(text) {
@@ -206,11 +231,11 @@ async function extractUnlocked(config, { url, transcribe, preferBrowser }) {
     if (!config.autoInstall) {
       return { ok: false, error: `没找到 ${exe}，先调用 media_setup（action=download）或配置 binPath` };
     }
-    const ok = await installEngine(config);
-    if (!ok) {
+    const installed = await installEngine(config);
+    if (!installed.ok) {
       return {
         ok: false,
-        error: `引擎还没装好，自动下载也失败了。请手动下载 ${PKG_URL}，解压到 ${join(homeOf(config), 'extract-tool')}`,
+        error: `引擎还没装好，自动下载也失败了${installed.error ? `：${installed.error}` : ''}。请手动下载 ${PKG_URL}，解压到 ${join(homeOf(config), 'extract-tool')}`,
       };
     }
   }
@@ -246,9 +271,17 @@ const MIME = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.txt': 'text/plain; charset=utf-8',
 };
 
-/** 允许读取的根目录：引擎目录 + 输出目录（含各盘「工作台」）。 */
+/** 引擎本体目录装着 config.json（代理账密）和 cookies/（登录态），文件接口一律不许碰。 */
+function isDeniedPath(config, target) {
+  const toolDir = resolve(dirname(binOf(config)));
+  if (target === toolDir || target.startsWith(toolDir + sep)) return true;
+  const parts = target.split(sep);
+  return parts.includes('cookies') || parts[parts.length - 1] === 'config.json';
+}
+
+/** 允许读取的根目录：引擎的 output 子目录 + 输出目录（含各盘「工作台」）。引擎本体目录不整根开放。 */
 function allowedRoots(config) {
-  const roots = [resolve(homeOf(config))];
+  const roots = [resolve(homeOf(config), 'output')];
   const configured = String(config.outputDir || '').trim();
   if (configured) roots.push(resolve(configured));
   if (process.platform === 'win32') {
@@ -266,6 +299,7 @@ function serveFile(config, rawPath) {
   const raw = String(rawPath || '');
   if (!raw) return new Response('missing path', { status: 400 });
   const target = resolve(raw);
+  if (isDeniedPath(config, target)) return new Response('forbidden', { status: 403 });
   const ok = allowedRoots(config).some((root) => target === root || target.startsWith(root + sep));
   if (!ok) return new Response('forbidden', { status: 403 });
   if (!existsSync(target)) return new Response('not found', { status: 404 });
@@ -378,15 +412,15 @@ function makeSetupTool(config) {
       if (existsSync(exe)) {
         return { ready: true, bin: exe, home, config: readConfig(config), message: `已存在，无需下载：${exe}` };
       }
-      const ok = await installEngine(config);
+      const installed = await installEngine(config);
       return {
-        ready: ok,
+        ready: installed.ok,
         bin: exe,
         home,
         config: readConfig(config),
-        message: ok
+        message: installed.ok
           ? `下载完成：${exe}\n下一步：media_setup action=config 填代理和账号（可选），然后直接在「解析」里粘链接。`
-          : `下载失败。可手动下载 ${PKG_URL} 解压到 ${join(home, 'extract-tool')}`,
+          : `下载失败${installed.error ? `：${installed.error}` : ''}。可手动下载 ${PKG_URL} 解压到 ${join(home, 'extract-tool')}`,
       };
     },
   });
@@ -441,6 +475,9 @@ export function apply(ctx, config) {
         const target = String(body.path || '').trim();
         if (!target) return Response.json({ ok: false, error: '缺少 path' }, { status: 400 });
         const abs = resolve(target);
+        if (isDeniedPath(config, abs)) {
+          return Response.json({ ok: false, error: '引擎目录里的配置文件与登录态不允许打开' }, { status: 403 });
+        }
         const allowed = allowedRoots(config).some((root) => abs === root || abs.startsWith(root + sep));
         if (!allowed) {
           return Response.json({ ok: false, error: `只允许打开解析产物目录下的文件：${allowedRoots(config).join(' / ')}` }, { status: 403 });
@@ -454,9 +491,13 @@ export function apply(ctx, config) {
             child.on('error', () => {});
             child.unref();
           } else if (platform() === 'darwin') {
-            spawn('open', ['-R', abs], { detached: true, stdio: 'ignore' }).unref();
+            const child = spawn('open', ['-R', abs], { detached: true, stdio: 'ignore' });
+            child.on('error', () => {});
+            child.unref();
           } else {
-            spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
+            const child = spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' });
+            child.on('error', () => {});
+            child.unref();
           }
         } catch (error) {
           return Response.json({ ok: false, error: String(error) }, { status: 500 });
